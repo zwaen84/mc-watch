@@ -66,6 +66,15 @@ jobs:
               "https://ntfy.sh/$NTFY_TOPIC"
           fi
 
+          if [ "$prev" != "0" ] && [ "$ONLINE" = "0" ]; then
+            curl -sS \
+              -H "Title: Minecraft-Server" \
+              -H "Tags: zzz" \
+              -H "Priority: low" \
+              -d "Server wieder leer" \
+              "https://ntfy.sh/$NTFY_TOPIC"
+          fi
+
           if [ "$prev" != "$ONLINE" ]; then
             echo "$ONLINE" > state.txt
             echo "$(date -u +%FT%TZ);$ONLINE;$NAMES" >> verlauf.csv
