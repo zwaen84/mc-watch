@@ -52,10 +52,17 @@ jobs:
           prev=$(cat state.txt 2>/dev/null || echo 0)
 
           if [ "$prev" = "0" ] && [ "$ONLINE" != "0" ]; then
+            if [ -n "$NAMES" ]; then
+              msg="$NAMES ist online"
+            elif [ "$ONLINE" = "1" ]; then
+              msg="1 Spieler online"
+            else
+              msg="$ONLINE Spieler online"
+            fi
             curl -sS \
               -H "Title: Minecraft-Server" \
               -H "Tags: video_game" \
-              -d "${NAMES:-$ONLINE Spieler} ist online" \
+              -d "$msg" \
               "https://ntfy.sh/$NTFY_TOPIC"
           fi
 
