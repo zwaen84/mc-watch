@@ -1,0 +1,71 @@
+name: minecraft-watch
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'   # alle 5 Minuten pollen
+    - cron: '17 4 * * 0'    # wöchentlicher Heartbeat gegen die 60-Tage-Abschaltung
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: mc-watch
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Heartbeat
+        if: github.event.schedule == '17 4 * * 0'
+        run: |
+          date -u +%FT%TZ > heartbeat.txt
+          git config user.name  "mc-watch"
+          git config user.email "mc-watch@users.noreply.github.com"
+          git add heartbeat.txt
+          git commit -m "keepalive" || exit 0
+          git push
+
+      - name: Serverstatus abfragen
+        if: github.event.schedule != '17 4 * * 0'
+        id: status
+        env:
+          SERVER: ${{ secrets.MC_SERVER }}
+        run: |
+          json=$(curl -sS -A "mc-watch/1.0 (privates Monitoring)" \
+                 "https://api.mcsrvstat.us/3/$SERVER")
+          online=$(echo "$json" | jq -r '.players.online // 0')
+          names=$(echo "$json" | jq -r '[.players.list[]?.name] | join("|")')
+          echo "online=$online" >> "$GITHUB_OUTPUT"
+          echo "names=$names"   >> "$GITHUB_OUTPUT"
+
+      - name: Vergleichen und ggf. benachrichtigen
+        if: github.event.schedule != '17 4 * * 0'
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          ONLINE: ${{ steps.status.outputs.online }}
+          NAMES: ${{ steps.status.outputs.names }}
+        run: |
+          prev=$(cat state.txt 2>/dev/null || echo 0)
+
+          if [ "$prev" = "0" ] && [ "$ONLINE" != "0" ]; then
+            curl -sS \
+              -H "Title: Minecraft-Server" \
+              -H "Tags: video_game" \
+              -d "${NAMES:-$ONLINE Spieler} ist online" \
+              "https://ntfy.sh/$NTFY_TOPIC"
+          fi
+
+          if [ "$prev" != "$ONLINE" ]; then
+            echo "$ONLINE" > state.txt
+            echo "$(date -u +%FT%TZ);$ONLINE;$NAMES" >> verlauf.csv
+            git config user.name  "mc-watch"
+            git config user.email "mc-watch@users.noreply.github.com"
+            git add state.txt verlauf.csv
+            git commit -m "status: $ONLINE Spieler"
+            git pull --rebase || true
+            git push
+          fi
