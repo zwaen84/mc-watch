@@ -13,6 +13,7 @@ from collections import defaultdict
 
 JOIN = re.compile(r'\[(\d\d):(\d\d):(\d\d)\].*?: (\S+) joined the game')
 LEAVE = re.compile(r'\[(\d\d):(\d\d):(\d\d)\].*?: (\S+) left the game')
+LOST = re.compile(r'\[(\d\d):(\d\d):(\d\d)\].*?: (\S+) \(/[\d.]+:\d+\) lost connection')
 DATUM = re.compile(r'(\d{4})-(\d\d)-(\d\d)')
 
 
@@ -45,7 +46,7 @@ def main(ordner):
         vorher = None
         with oeffnen(pfad) as fh:
             for zeile in fh:
-                for regex, art in ((JOIN, 'join'), (LEAVE, 'leave')):
+                for regex, art in ((JOIN, 'join'), (LEAVE, 'leave'), (LOST, 'lost')):
                     m = regex.search(zeile)
                     if not m:
                         continue
@@ -65,8 +66,10 @@ def main(ordner):
     offen, sitzungen = {}, []
     for zeit, art, name in ereignisse:
         if art == 'join':
+            if name in offen:  # Join ohne vorheriges Leave (Absturz/Neustart)
+                sitzungen.append((name, offen.pop(name), None))
             offen[name] = zeit
-        elif name in offen:
+        elif art == 'leave' and name in offen:
             sitzungen.append((name, offen.pop(name), zeit))
     for name, start in offen.items():
         sitzungen.append((name, start, None))  # noch online / Log endet
@@ -79,15 +82,25 @@ def main(ordner):
         if ende:
             dauer[name] += ende - start
 
-    a, b = ereignisse[0][0], ereignisse[-1][0]
-    tage = max((b - a).days + 1, 1)
-    print('Zeitraum:   %s bis %s  (%d Tage)' % (a.date(), b.date(), tage))
+    logtage = sorted({tag_von(p).date() for p in dateien})
+    a, b = logtage[0], logtage[-1]
+    tage = (b - a).days + 1
+    print('Log-Abdeckung: %s bis %s  (%d Kalendertage, %d mit Logdatei)'
+          % (a, b, tage, len(logtage)))
     print('Sitzungen:  %d insgesamt' % len(sitzungen))
     print()
     print('%-20s %8s %14s %12s' % ('Spieler', 'Logins', 'Spielzeit', 'pro Tag'))
     for name in sorted(dauer, key=lambda n: -dauer[n]):
         std = dauer[name].total_seconds() / 3600
         print('%-20s %8d %11.1f h %9.1f min' % (name, anzahl[name], std, std * 60 / tage))
+
+    ohne_login = sorted({(z, n) for z, art, n in ereignisse
+                         if art == 'lost' and n not in dauer and n not in anzahl})
+    if ohne_login:
+        print()
+        print('Verbindungen OHNE Betreten der Welt (Scan/Abbruch/Whitelist):')
+        for z, n in ohne_login:
+            print('  %s  %s' % (z.strftime('%Y-%m-%d %H:%M:%S'), n))
 
     aktiv = len({s[1].date() for s in sitzungen})
     print()
