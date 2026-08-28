@@ -1,0 +1,5 @@
+
+# Server-Logs nie ins oeffentliche Repo (enthalten Spieler-IPs)
+*.log
+*.log.gz
+verlauf-rueckwirkend.csv
